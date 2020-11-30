@@ -1,0 +1,7 @@
+---
+
+gitlab_downloader_script_dir: "/opt/scripts"
+gitlab_downloader_script_name: "gitlab-downloader"
+gitlab_downloader_script: "{{ gitlab_downloader_script_dir }}/{{ gitlab_downloader_script_name }}"
+
+gitlab_downloader_install_deps: true

@@ -1,0 +1,13 @@
+---
+
+- name: create script directory {{ gitlab_downloader_script_dir }}
+  file:
+    path: "{{ gitlab_downloader_script_dir }}"
+    state: directory
+    recurse: yes
+
+- name: copy script {{ gitlab_downloader_script_name }}
+  copy:
+    src: "gitlab-downloader"
+    dest: "{{ gitlab_downloader_script }}"
+    mode: '0755'

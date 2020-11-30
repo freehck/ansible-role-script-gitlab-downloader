@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+
+# strict mode
+set -euo pipefail
+
+# script specific vars
+PROGNAME=$(basename "$0")
+VERSION=1.0.0
+
+# defaults
+: ${DEBUG:=}
+
+: ${GITLAB_SERVER:=gitlab.com}
+: ${PROJECT_NAME:=}
+: ${PIPELINE_ID:=}
+: ${OUTPUT_FILE:=}
+: ${ARTIFACT_PATH:=}
+: ${JOB_NAME:=build}
+: ${TOKEN:=}
+
+# functions
+msg() {
+    echo "$@"
+}
+
+err() {
+    >&2 echo "$@"
+}
+
+errcat() {
+    >&2 cat
+}
+
+print_help() {
+    cat <<EOF
+$PROGNAME [options] [--] <command>
+
+Version: $VERSION
+Description: run <command> acquiring the lock over some file, so other command won't be able
+             to run simultaneously
+
+Options:
+-p|--project <project_name>        <project_name> must be a name of project, mandatory option
+-b|--build <pipeline_id>           <pipeline_id> must be a pipeline id to download artifacts from, mandatory option
+-o|--output <output_file>          <output_file> to store the artifact, default is stdout, default is <file>
+-f|--file <file>                   <file> is a an arfifact to download, download all by default
+-j|--job <jobname>                 <jobnama> is the name of job with artifacts, default is build
+-s|--server <gitlab_server>        <gitlab_server> is by default gitlab.com, but you can specify your on-prem installation instead
+-k|--key <token>                   <token> is your gitlab token with api access rights, mandatory
+-h|--help                          print this help and exit
+
+Examples:
+$PROGNAME -p myproject -b 1234 -j build
+
+EOF
+}
+
+parse_opts() {
+    local temp parse_opts_status
+    temp=$(getopt -o p:b:o:f:j:s:k:h --long project:,build:,output:,file:,job:,server:,key:,help,dbg -- "$@")
+    parse_opts_status=$?
+    if [ "$parse_opts_status" != 0 ]; then
+	err "Error in parsing options";
+	exit 1
+    fi
+    # modify cmdline
+    eval set -- "$temp"
+    unset temp
+
+    # parse cmdline options
+    while true; do
+	case "$1" in
+	    -h|--help) print_help; exit 0;;
+	    --debug|--dbg) DEBUG=y; shift;;
+	    -p|--project) PROJECT_NAME="$2"; shift 2;;
+	    -b|--build) PIPELINE_ID="$2"; shift 2;;
+	    -o|--output) OUTPUT_FILE="$2"; shift 2;;
+	    -f|--file) ARTIFACT_PATH="$2"; shift 2;;
+	    -j|--job) JOB_NAME="$2"; shift 2;;
+	    -s|--server) GITLAB_SERVER="$2"; shift 2;;
+	    -k|--key) TOKEN="$2"; shift 2;;
+	    --) shift; break;;
+	    *) err "Unknown option $1"; exit 1;;
+	esac
+    done
+
+}
+
+print_conf() {
+    errcat <<EOF
+---------- Configuration ----------
+PROGNAME=$PROGNAME
+VERSION=$VERSION
+PROJECT_NAME=$PROJECT_NAME
+PIPELINE_ID=$PIPELINE_ID
+OUTPUT_FILE=$OUTPUT_FILE
+ARTIFACT_PATH=$ARTIFACT_PATH
+JOB_NAME=$JOB_NAME
+GITLAB_SERVER=$GITLAB_SERVER
+TOKEN=$TOKEN
+-----------------------------------
+EOF
+}
+
+check_conf() {
+    local found_conf_errors=
+
+    if [ -z "$PROJECT_NAME" ]; then
+	found_conf_errors=y
+	errcat <<EOF
+Project name not set. Check -p|--project option.
+EOF
+    fi
+
+    if [ -z "$PIPELINE_ID" ]; then
+	found_conf_errors=y
+	errcat <<EOF
+Build (pipeline id) not set. Check -b|--build option.
+EOF
+    fi
+
+    # --- stop if errors found ---
+    if [ -n "$found_conf_errors" ]; then
+	exit 3
+    fi
+}
+
+post_init() {
+    if [ -z "$OUTPUT_FILE" ]; then
+	OUTPUT_FILE=$(basename $ARTIFACT_PATH)
+    fi
+}
+
+# gitlab specific functions
+gitlab_curl() {
+    curl -s --header "PRIVATE-TOKEN: $TOKEN" "$@"    
+}
+
+# projects
+gitlab_project() {
+    local project_name=$1
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/projects?search=${project_name}" |\
+	jq ".[] | select(.path | contains(\"${project_name}\"))"
+}
+
+gitlab_project_id_by_project_name() {
+    local project_name=$1
+    gitlab_project "${project_name}" | jq .id
+}
+
+gitlab_user_projects_by_user_id() {
+    local user_id=$1
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/users/${user_id}/projects"
+}
+
+# users
+gitlab_user_by_username() {
+    local username=$1
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/users?username=${username}"
+}
+
+gitlab_user_id_by_username() {
+    gitlab_user_by_username | jq '.[].id'
+}
+
+# jobs and pipelines
+gitlab_jobs() {
+    local project_id=$1 pipeline_id=$2
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/projects/${project_id}/pipelines/${pipeline_id}/jobs"
+}
+
+gitlab_job_by_job_name() {
+    local project_id=$1 pipeline_id=$2 job_name=$3
+    gitlab_jobs $project_id $pipeline_id |\
+	jq ".[] | select(.name | contains(\"$job_name\"))"
+}
+
+gitlab_job_id_by_job_name() {
+    local project_id=$1 pipeline_id=$2 job_name=$3
+    gitlab_job_by_job_name $project_id $pipeline_id $job_name | jq .id
+}
+
+# artifacts
+gitlab_download_artifact() {
+    local project_id=$1 pipeline_id=$2 job_id=$3 artifact_path=$4
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/projects/${project_id}/jobs/${job_id}/artifacts/${artifact_path}"
+    
+}
+
+# PROGRAM
+
+# init
+parse_opts "$@"
+if [ -n "$DEBUG" ]; then
+    print_conf
+fi
+check_conf
+post_init
+
+# download an artifact
+set -x
+project_id=$(gitlab_project_id_by_project_name $PROJECT_NAME)
+job_id=$(gitlab_job_id_by_job_name $project_id $PIPELINE_ID $JOB_NAME)
+gitlab_download_artifact $project_id $PIPELINE_ID $job_id $ARTIFACT_PATH > $OUTPUT_FILE

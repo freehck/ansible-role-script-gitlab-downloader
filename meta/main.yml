@@ -1,0 +1,29 @@
+galaxy_info:
+  author: Dmitrii Kashin
+  description: create a script that allows to download artifacts from gitlab
+  role_name: script_gitlab_downloader
+  license: MIT
+  min_ansible_version: 2.4
+  platforms:
+    - name: Ubuntu
+      versions:
+        - all
+    - name: Debian
+      versions:
+        - all
+
+  galaxy_tags:
+    - shell
+    - script
+    - gitlab
+    - gitlab-downloader
+
+dependencies:
+  - role: freehck.pkg_install
+    vars:
+      pkg_install_packages:
+        - bash
+        - curl
+        - jq
+    when:
+      - ansible_distribution | default('none') in [ 'Ubuntu', 'Debian' ]
