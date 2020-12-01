@@ -17,6 +17,7 @@ VERSION=1.0.0
 : ${ARTIFACT_PATH:=}
 : ${JOB_NAME:=build}
 : ${TOKEN:=}
+: ${BRANCH:=}
 
 # functions
 msg() {
@@ -57,7 +58,7 @@ EOF
 
 parse_opts() {
     local temp parse_opts_status
-    temp=$(getopt -o p:b:o:f:j:s:k:h --long project:,build:,output:,file:,job:,server:,key:,help,dbg -- "$@")
+    temp=$(getopt -o p:b:o:f:j:s:k:hB: --long project:,build:,output:,file:,job:,server:,key:,help,dbg,branch -- "$@")
     parse_opts_status=$?
     if [ "$parse_opts_status" != 0 ]; then
 	err "Error in parsing options";
@@ -74,6 +75,7 @@ parse_opts() {
 	    --debug|--dbg) DEBUG=y; shift;;
 	    -p|--project) PROJECT_NAME="$2"; shift 2;;
 	    -b|--build) PIPELINE_ID="$2"; shift 2;;
+	    -B|--branch) BRANCH="$2"; shift 2;;
 	    -o|--output) OUTPUT_FILE="$2"; shift 2;;
 	    -f|--file) ARTIFACT_PATH="$2"; shift 2;;
 	    -j|--job) JOB_NAME="$2"; shift 2;;
@@ -97,6 +99,7 @@ OUTPUT_FILE=$OUTPUT_FILE
 ARTIFACT_PATH=$ARTIFACT_PATH
 JOB_NAME=$JOB_NAME
 GITLAB_SERVER=$GITLAB_SERVER
+BRANCH=$BRANCH
 TOKEN=$TOKEN
 -----------------------------------
 EOF
@@ -112,12 +115,13 @@ Project name not set. Check -p|--project option.
 EOF
     fi
 
-    if [ -z "$PIPELINE_ID" ]; then
-	found_conf_errors=y
-	errcat <<EOF
-Build (pipeline id) not set. Check -b|--build option.
-EOF
-    fi
+# todo: check here for branch
+#    if [ -z "$PIPELINE_ID" ]; then
+#	found_conf_errors=y
+#	errcat <<EOF
+#Build (pipeline id) not set. Check -b|--build option.
+#EOF
+#    fi
 
     # --- stop if errors found ---
     if [ -n "$found_conf_errors" ]; then
@@ -164,6 +168,22 @@ gitlab_user_id_by_username() {
 }
 
 # jobs and pipelines
+
+gitlab_pipelines_by_project_id() {
+    local project_id=$1
+    gitlab_curl "https://$GITLAB_SERVER/api/v4/projects/${project_id}/pipelines"
+}
+
+gitlab_pipelines_by_project_id_filter_branch() {
+    local project_id=$1 branch=$2
+    gitlab_pipelines_by_project_id $1 | jq "map(select(.ref==\"${branch}\"))"
+}
+
+gitlab_pipelines_by_project_id_filter_branch_and_take_last_id() {
+    local project_id=$1 branch=$2
+    gitlab_pipelines_by_project_id_filter_branch $1 $2 | jq "max_by(.id) | .id"
+}
+
 gitlab_jobs() {
     local project_id=$1 pipeline_id=$2
     gitlab_curl "https://$GITLAB_SERVER/api/v4/projects/${project_id}/pipelines/${pipeline_id}/jobs"
@@ -200,5 +220,12 @@ post_init
 # download an artifact
 set -x
 project_id=$(gitlab_project_id_by_project_name $PROJECT_NAME)
-job_id=$(gitlab_job_id_by_job_name $project_id $PIPELINE_ID $JOB_NAME)
-gitlab_download_artifact $project_id $PIPELINE_ID $job_id $ARTIFACT_PATH > $OUTPUT_FILE
+
+if [ -z "$PIPELINE_ID" ]; then
+    pipeline_id=$(gitlab_pipelines_by_project_id_filter_branch_and_take_last_id "$project_id" "$BRANCH")
+else
+    pipeline_id=$PIPELINE_ID
+fi
+
+job_id=$(gitlab_job_id_by_job_name "$project_id" "$pipeline_id" "$JOB_NAME")
+gitlab_download_artifact "$project_id" "$pipeline_id" "$job_id" "$ARTIFACT_PATH" > $OUTPUT_FILE
