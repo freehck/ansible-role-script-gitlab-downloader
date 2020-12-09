@@ -197,7 +197,7 @@ gitlab_job_by_job_name() {
 
 gitlab_job_id_by_job_name() {
     local project_id=$1 pipeline_id=$2 job_name=$3
-    gitlab_job_by_job_name $project_id $pipeline_id $job_name | jq -r .id | sort -hu | head -n1
+    gitlab_job_by_job_name $project_id $pipeline_id $job_name | jq -r .id | sort -u | head -n1
 }
 
 # artifacts
