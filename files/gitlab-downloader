@@ -181,7 +181,7 @@ gitlab_pipelines_by_project_id_filter_branch() {
 
 gitlab_pipelines_by_project_id_filter_branch_and_take_last_id() {
     local project_id=$1 branch=$2
-    gitlab_pipelines_by_project_id_filter_branch $1 $2 | jq "max_by(.id) | .id"
+    gitlab_pipelines_by_project_id_filter_branch $1 $2 | jq 'map(select(.status=="success")) | max_by(.id) | .id'
 }
 
 gitlab_jobs() {
