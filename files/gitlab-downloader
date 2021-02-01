@@ -144,7 +144,7 @@ gitlab_curl() {
 gitlab_project() {
     local project_name=$1
     gitlab_curl "https://$GITLAB_SERVER/api/v4/projects?search=${project_name}" |\
-	jq ".[] | select(.path | contains(\"${project_name}\"))"
+	jq ".[] | select(.path == \"${project_name}\")"
 }
 
 gitlab_project_id_by_project_name() {
