@@ -213,12 +213,12 @@ gitlab_download_artifact() {
 parse_opts "$@"
 if [ -n "$DEBUG" ]; then
     print_conf
+    set -x
 fi
 check_conf
 post_init
 
 # download an artifact
-set -x
 project_id=$(gitlab_project_id_by_project_name $PROJECT_NAME)
 
 if [ -z "$PIPELINE_ID" ]; then
